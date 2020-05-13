@@ -17,22 +17,7 @@ const config = {
 
 const client = new pg.Client(config);
 
-const userConfig = {
-    host: 'localhost',
-    user: '',
-    password: '',
-    database: 'postgres',
-    port: 5432,
-    ssl: false
-};
-
-let userClient;
-
-let countOfUserTabs;
-
-let isLoggedIn = false;
-
-async function getInfoFromQuery(client, query, callback){
+/*async function getInfoFromQuery(client, query, callback){
     await client.query(query, function(err, results){
         if (err){
             throw err;
@@ -42,7 +27,7 @@ async function getInfoFromQuery(client, query, callback){
         return callback(results);
     })
 }
-
+*/
 client.connect(err => {
     if (err) throw err;
     else {
@@ -52,108 +37,78 @@ client.connect(err => {
 
 function queryDatabase(){
     let query = `
-        ALTER USER postgres WITH PASSWORD 'password';
         CREATE TABLE IF NOT EXISTS users (
             id serial PRIMARY KEY,
-            tabName VARCHAR(20),
+            login VARCHAR(25),
+            password VARCHAR(16), 
             name VARCHAR(60),
-            login VARCHAR(20)
+            birthDate DATE,
+            workPhone VARCHAR(17),
+            privatePhone1 VARCHAR(17),   
+            privatePhone2 VARCHAR(17),   
+            privatePhone3 VARCHAR(17),   
+            branch VARCHAR(20),   
+            position VARCHAR(20),          
+            workPlace VARCHAR(20),   
+            about VARCHAR(100),  
+            avatar SMALLINT ARRAY, 
+            hideYear BOOLEAN,
+            hidePhones BOOLEAN,
+            banned BOOLEAN
         );
         
+        CREATE TABLE IF NOT EXISTS requests (
+            id serial PRIMARY KEY,
+            target VARCHAR(20),
+            requesting VARCHAR(20),
+            status INT
+        );
+        
+        DROP TABLE IF EXISTS admins;
+        CREATE TABLE IF NOT EXISTS admins (
+            login VARCHAR(20) PRIMARY KEY,
+            password VARCHAR(20)
+        );    
+
+        INSERT INTO admins (login, password) 
+            VALUES ('admin', 'admin'),
+                   ('DSR', 'DSR');
+            
         ALTER TABLE users
             OWNER to postgres;
-        GRANT SELECT (id, tabName, name) 
-            ON users
-            TO PUBLIC;
-           
-        DO
-        $do$
-        BEGIN
-           IF NOT EXISTS (
-              SELECT FROM pg_catalog.pg_roles
-              WHERE rolname = 'admins') THEN
-              CREATE GROUP admins WITH SUPERUSER CREATEDB CREATEROLE;
-           END IF;
-           IF NOT EXISTS (
-              SELECT FROM pg_catalog.pg_roles
-              WHERE rolname = 'admin') THEN
-              CREATE ROLE admin PASSWORD 'admin' SUPERUSER CREATEDB CREATEROLE INHERIT LOGIN;
-           END IF;
-           IF NOT EXISTS (
-              SELECT FROM pg_catalog.pg_roles
-              WHERE rolname = 'dsr') THEN
-              CREATE ROLE dsr PASSWORD 'DSR' SUPERUSER CREATEDB CREATEROLE INHERIT LOGIN;
-           END IF;
-           ALTER GROUP admins ADD USER admin, DSR;
-        END
-        $do$;   
-            
+        ALTER TABLE admins
+            OWNER to postgres;
+        ALTER TABLE requests
+            OWNER to postgres;
     `;
     client
-        .query(query)
-        .then(() => {
-            console.log('Table created successfully!');
-            //client.end(console.log('Closed client connection'));
-        })
-        .catch(err => console.log(err));
-    let result;
-    query = `
-        SELECT MAX(id) FROM users
-    `;
-    getInfoFromQuery(client, query, function(results){
-        if (results.rows === undefined){
-            result = '0';
-        }
-        else {
-            result = results.rows[0].max;
-        }
-        countOfUserTabs = Number(result);
-    });
+        .query(query);
 }
 
-function convertLogin(login){
-    return login.replace('@', '').replace('.','').toLowerCase();
+function makeArray(inp, inpLen){
+    let array = '';
+    if (inpLen !== 0) {
+        array = '{';
+        for (let i = 0; i < inpLen; i++) {
+            array += (i !== 0 ? ',' : '') + '{' + inp[i] + '}';
+        }
+        array += '}';
+    }
+    return array;
 }
+
 function createNewUser(req){
-    let query = `
-    SELECT MAX(id) 
-    FROM users
-    `;
-
     let login = req.body.login.toLowerCase();
-    let dataLogin = 'id' + ++countOfUserTabs + 'private';
     let password = req.body.password;
-    //PRIVATE
-    //login VARCHAR(20),
-    //password VARCHAR(20),
-    //phones VARCHAR(12)[],
-    //requestid INT[],
-    //ban-listid INT[],
-    query = `
-    INSERT INTO users (tabName, login, name)
-    VALUES ('${dataLogin}', '${login}', '${req.body.name}');
-    
-    
-    DROP TABLE IF EXISTS ${dataLogin};
-    CREATE TABLE ${dataLogin} (
-        login VARCHAR(20) PRIMARY KEY,
-        password varchar(20) NOT NULL,
-        name VARCHAR(60) NOT NULL,
-        workPhone VARCHAR(12) NOT NULL,
-        privatePhone1 VARCHAR(12),    
-        privatePhone2 VARCHAR(12),
-        privatePhone3 VARCHAR(12),
-        branch VARCHAR(20),
-        position VARCHAR(20),       
-        workPlace VARCHAR(40),
-        about VARCHAR(100),
-        banned boolean
-    );
-        
-    INSERT INTO ${dataLogin} (
+
+    let array = makeArray(req.body.avatar, req.body.len);
+
+    let query = `
+    INSERT INTO users (
         login,
         password, 
         name,
+        birthDate,
         workPhone,
         privatePhone1,    
         privatePhone2,
@@ -162,12 +117,16 @@ function createNewUser(req){
         position,       
         workPlace,
         about,
+        avatar,
+        hideYear,
+        hidePhones,
         banned
     ) 
     VALUES (
         '${login}',
         '${password}', 
         '${req.body.name}',
+        '${req.body.birthDate}',
         '${req.body.workPhone}',
         '${req.body.privatePhone1}',
         '${req.body.privatePhone2}',
@@ -176,53 +135,77 @@ function createNewUser(req){
         '${req.body.position}',
         '${req.body.workPlace}',
         '${req.body.about}',
+        '${array}',
+        '${req.body.hideYear}',
+        '${req.body.hidePhones}',
         FALSE);
         
-    CREATE ROLE ${convertLogin(login)} PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT LOGIN;
-    
-    ALTER TABLE ${dataLogin}
-        OWNER to postgres;
-    GRANT SELECT, UPDATE 
-        ON ${dataLogin}
-        TO ${convertLogin(login)};
-    GRANT SELECT (name, workPhone, branch, position, workPlace, about) 
-        ON ${dataLogin}
-        TO PUBLIC;
     `;
-    console.log('User created successfully!');
     client
-        .query(query)
-        .then(() => {
-            console.log('User created successfully!');
-            //client.end(console.log('Closed client connection'));
-        });
+        .query(query);
 }
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+function updateUserData(req){
+    let login = req.body.login.toLowerCase();
+    let password = req.body.password;
+
+    let array = makeArray(req.body.avatar, req.body.len);
+
+    let query = `
+        UPDATE users SET
+            login = '${login}',
+            password = '${password}',
+            name = '${req.body.name}',
+            birthDate = '${req.body.birthDate}',
+            workPhone = '${req.body.workPhone}',
+            privatePhone1 = '${req.body.privatePhone1}',
+            privatePhone2 = '${req.body.privatePhone2}',
+            privatePhone3 = '${req.body.privatePhone3}',
+            branch = '${req.body.branch}',
+            position = '${req.body.position}', 
+            workPlace = '${req.body.workPlace}',
+            about = '${req.body.about}',
+            avatar = '${array}',
+            hideYear = '${req.body.hideYear}',
+            hidePhones = '${req.body.hidePhones}'
+        WHERE login = '${req.body.oldLogin.toLowerCase()}' AND password = '${req.body.oldPassword}';
+    `;
+    client
+        .query(query);
+}
+
+function findNameById(ids, toFind){
+    for (let user of ids){
+        console.log(user.id + ' ' + Number(toFind));
+        if (user.id === Number(toFind)){
+            return [user.id, user.name];
+        }
+    }
+}
+
+app.use(bodyParser.json({limit: '50mb'}));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // API calls
 app.get('/loginGet', (req, res) => {
-    //console.log(req.body.login + ' ' + req.body.password);
     res.send({ express: 'Please, login:' });
 });
 
 let toSend = null;
 let anotherUserToSend = null;
 
- app.get('/bookAllGet', (req, res) => {
+app.get('/bookAllGet', (req, res) => {
     let query = `
-        SELECT tabName, name 
+        SELECT id, name 
         FROM users
     `;
 
-    userClient
+    client
         .query(query)
         .then(result => {
             let usersToSend = [];
             for (let row of result.rows){
-                console.log('row: ' + row.tabname + ' ' + row.name);
-                usersToSend.push([row.tabname, row.name]);
+                usersToSend.push([row.id, row.name]);
             }
             res.send({express:usersToSend});
         });
@@ -232,138 +215,298 @@ let anotherUserToSend = null;
     anotherUserToSend = null;
 });
 
-app.post('/loginPost', (req, res) => {
-    console.log(req.body.login + ' ' + req.body.password);
+app.post('/requestsAllGet', (req, res) => {
     let query = `
-        SELECT rolsuper
-            FROM pg_catalog.pg_roles 
-            WHERE pg_catalog.pg_roles.rolname = '${convertLogin(req.body.login)}'
+        SELECT id FROM users
+        WHERE login = '${req.body.login}'
+    `;
+
+    let requestsToSend = [];
+    client
+        .query(query)
+        .then(result => {
+            query = `
+                SELECT requesting
+                FROM requests
+                WHERE target = '${result.rows[0].id}' AND status = 0;
+            `;
+
+            client
+                .query(query)
+                .then(result => {
+                    for (let row of result.rows) {
+                        requestsToSend.push(row.requesting);
+                    }
+                    res.send({express: requestsToSend});
+                })
+        });
+
+
+    toSend = null;
+    anotherUserToSend = null;
+});
+
+app.post('/bookAllGetByAdmin', (req, res) => {
+    let query = `
+        SELECT login FROM admins WHERE login = '${req.body.login}' AND password = '${req.body.password}';
     `;
 
     client
         .query(query)
         .then(result => {
-            let adm = result.rows[0].rolsuper;
-            console.log(adm);
-            if (adm){
-                res.send({logged: false});
-            }
-            else {
-                userConfig.password = req.body.password;
-                userConfig.user = convertLogin(req.body.login);
-                userClient = new pg.Client(userConfig);
-                userClient.connect(err => {
-                    if (err) {
-                        console.log(err);
-                        res.send({logged: false});
-                    } else {
-                        console.log('Entered as ' + req.body.login);
-                        isLoggedIn = true;
+            if (result.rows[0] !== undefined) {
+                query = `
+                    SELECT login, name 
+                    FROM users
+                `;
 
-                        query = `
-                            SELECT tabname FROM users WHERE login = '${req.body.login}';
-                        `;
-                        ///////////////.toLowerCase()}';
-                        client.query(query)
-                            .then(result => {
-                                console.log('RESULT QUERY' + result.rows[0].tabname);
-                                res.send({logged: true, tabName: result.rows[0].tabname});
-                            });
-                    }
-                });
+                client
+                    .query(query)
+                    .then(result => {
+                        let usersToSend = [];
+                        for (let row of result.rows) {
+                            usersToSend.push([row.login, row.name]);
+                        }
+                        res.send({express: usersToSend});
+                    });
+
+
+                toSend = null;
+                anotherUserToSend = null;
+            }
+            else{
+                res.send({express: false});
             }
         });
 });
 
-app.post('/adminLoginPost', (req, res) => {
-    console.log(req.body.login + ' ' + req.body.password);
-    /*res.send(
-        `I received your POST request. This is what you sent me: ${req.body.login} ${req.body.password}`,
-    );*/
+app.post('/requestionAction', (req, res) => {
     let query = `
-        SELECT rolsuper
-            FROM pg_catalog.pg_roles 
-            WHERE pg_catalog.pg_roles.rolname = '${req.body.login.toLowerCase()}'
+        SELECT id FROM users
+        WHERE login = '${req.body.login}'
     `;
 
     client
         .query(query)
         .then(result => {
-            let adm = result.rows[0].rolsuper;
-            console.log(adm);
-            if (!adm){
-                res.send({logged: false});
+            query = `
+                UPDATE requests
+                SET status = ${req.body.status}
+                WHERE target = '${result.rows[0].id}' AND requesting = '${req.body.requesting}';
+            `;
+
+            client
+                .query(query)
+                .then(result => { res.send({result: true})});
+        });
+});
+
+app.post('/adminRequestionAction', (req, res) => {
+    let query = `
+         SELECT login FROM admins WHERE login = '${req.body.login}' AND password = '${req.body.password}';
+    `;
+    client.query(query)
+        .then(result => {
+            if (result.rows[0] !== undefined) {
+                query = `
+                    UPDATE requests
+                    SET status = ${req.body.status}
+                    WHERE target = '${req.body.target}' AND requesting = '${req.body.requesting}';
+                `;
+
+                client
+                    .query(query)
+                    .then(result => { res.send({result: true})});
             }
-            else {
-                userConfig.password = req.body.password;
-                userConfig.user = req.body.login.toLowerCase();
-                userClient = new pg.Client(userConfig);
-                userClient.connect(err => {
-                    if (err) {
-                        console.log(err);
-                        res.send({logged: false});
-                    } else {
-                        console.log('Entered as ' + req.body.login);
-                        isLoggedIn = true;
-                        res.send({logged: true});
-                    }
-                });
+        });
+});
+
+app.post('/loginPost', (req, res) => {
+    let login = req.body.login.toLowerCase();
+
+    let query = `
+         SELECT id FROM users WHERE login = '${login}' AND password = '${req.body.password}';
+    `;
+    client.query(query)
+        .then(result => {
+        if (result.rows[0] === undefined) {
+            res.send({logged: false});
+        } else {
+            res.send({logged: true, id: result.rows[0].id});
+        }
+    });
+});
+
+app.post('/adminLoginPost', (req, res) => {
+    let login = req.body.login.toLowerCase();
+
+    let query = `
+         SELECT login FROM admins WHERE login = '${login}' AND password = '${req.body.password}';
+    `;
+    client.query(query)
+        .then(result => {
+            if (result.rows[0] === undefined) {
+                res.send({logged: false});
+            } else {
+                res.send({logged: true});
+            }
+        });
+});
+
+app.post('/adminGetAllRequests', (req, res) => {
+    let login = req.body.login.toLowerCase();
+
+    let query = `
+         SELECT login FROM admins WHERE login = '${login}' AND password = '${req.body.password}';
+    `;
+    client.query(query)
+        .then(result => {
+            if (result.rows[0] !== undefined) {
+                query=`
+                    SELECT * FROM requests;
+                `;
+                client.query(query)
+                    .then(requests => {
+                        query=`
+                            SELECT id, name FROM users;
+                        `;
+                        client.query(query)
+                            .then(users => {
+                                let requestsToSend = [];
+                                for (let row of requests.rows){
+                                    let request = [];
+                                    let user = findNameById(users.rows, row.target);
+                                    request.push(user[0], user[1]);
+                                    user = findNameById(users.rows, row.requesting);
+                                    request.push(user[0], user[1]);
+                                    request.push(row.status);
+                                    requestsToSend.push(request);
+                                }
+                                res.send({express: requestsToSend})
+                            });
+                    });
+            } else {
+                res.send({logged: true});
             }
         });
 });
 
 app.post('/getInfoAbout', (req, res) => {
-    console.log('getInfoAbout' + req.body.key);
-
     let query = `
-        SELECT ${req.body.isThisUser ? '*' : 'name, workPhone, branch, position, workPlace, about'}
-        FROM ${req.body.key}
+        SELECT 
+            id,
+            name, 
+            birthDate, 
+            workPhone, 
+            privatePhone1, 
+            privatePhone2, 
+            privatePhone3, 
+            branch, 
+            position, 
+            workPlace, 
+            about,
+            avatar,
+            hidePhones,
+            hideYear
+        FROM users
+        WHERE id = '${req.body.id}';
     `;
 
-    userClient
+    client
         .query(query)
         .then(result => {
-            let row = result.rows[0];
-            console.log(row);
-            if (req.body.isThisUser){
-                res.send({
-                    login: row.login,
-                    password: row.password,
-                    privatePhone1: row.privatePhone1,
-                    privatePhone2: row.privatePhone2,
-                    privatePhone3: row.privatePhone3,
-                    name: row.name,
-                    workPhone: row.workphone,
-                    branch: row.branch,
-                    position: row.position,
-                    workPlace: row.workplace,
-                    about: row.about,
-                });
+            if (result.rows !== undefined) {
+                query = `
+                    SELECT status FROM requests
+                    WHERE target = '${req.body.id}' AND requesting = '${req.body.requesting}';
+                `;
+                client
+                    .query(query)
+                    .then(status => {
+                        let row = result.rows[0];
+                        res.send({
+                            result: true,
+                            id: row.id,
+                            birthDate: `${row.birthdate.getDate()}.
+                                ${row.birthdate.getMonth()}
+                                ${!row.hideyear ? '.' + row.birthdate.getFullYear() : ''}`,
+                            privatePhone1: row.hidephones && status.rows[0]?.status !== 1 ? undefined : row.privatephone1,
+                            privatePhone2: row.hidephones && status.rows[0]?.status !== 1 ? undefined : row.privatephone2,
+                            privatePhone3: row.hidephones && status.rows[0]?.status !== 1 ? undefined : row.privatephone3,
+                            name: row.name,
+                            workPhone: row.workphone,
+                            branch: row.branch,
+                            position: row.position,
+                            workPlace: row.workplace,
+                            about: row.about,
+                            avatar: row.avatar,
+                        });
+                    })
             }
-            else {
-                res.send({
-                    name: row.name,
-                    workPhone: row.workphone,
-                    branch: row.branch,
-                    position: row.position,
-                    workPlace: row.workplace,
-                    about: row.about,
-                });
+            else{
+                res.send({result: false});
             }
         });
 });
 
-app.post('/api/register', (req, res) => {
-    console.log(req.body.login + ' ' + req.body.password + ' ' + req.body.about);
-    createNewUser(req);
-    /*res.send(
-        `I received your POST request. This is what you sent me: ${req.body.login} ${req.body.password} ${req.body.about}`,
-    );*/
+app.post('/registerOrChange', (req, res) => {
+    let query = `
+        SELECT id FROM users
+        WHERE login = '${req.body.oldLogin}' AND password = '${req.body.oldPassword}';
+    `;
+    client
+        .query(query)
+        .then(result => {
+            if (result.rows[0] !== undefined){
+                updateUserData(req);
+            }
+            else{
+                createNewUser(req);
+            }
+        });
+    res.send();
+});
+
+app.post('/getMyPage', (req, res) => {
+    let query = `
+        SELECT *
+        FROM users
+        WHERE login = '${req.body.login.toLowerCase()}';
+    `;
+
+    client
+        .query(query)
+        .then(result => {
+            if (result.rows[0] !== undefined) {
+                let row = result.rows[0];
+                let bDate = row.birthdate;
+                bDate.setDate(bDate.getDate() + 1);
+                res.send({
+                    result: true,
+                    login: row.login,
+                    password: row.password,
+                    birthDate: bDate.toISOString().substr(0,10),
+                    privatePhone1: row.privatephone1,
+                    privatePhone2: row.privatephone2,
+                    privatePhone3: row.privatephone3,
+                    name: row.name,
+                    workPhone: row.workphone,
+                    branch: row.branch,
+                    position: row.position,
+                    workPlace: row.workplace,
+                    hideYear: row.hideyear,
+                    hidePhones: row.hidephones,
+                    about: row.about,
+                    avatar: row.avatar,
+                });
+            }
+            else{
+                res.send({result: false});
+            }
+        });
 });
 
 app.post('/userValidate', (req, res) => {
-    console.log(req.body.login);
-    //createNewUser(req);
     let query = `
         SELECT login FROM users
         WHERE login = '${req.body.login}';
@@ -373,16 +516,45 @@ app.post('/userValidate', (req, res) => {
         .query(query)
         .then(result => {
             let row = result.rows[0];
-            console.log(row);
 
             res.send({
                 validate: row === undefined
             });
         });
+});
 
-    /*res.send(
-        `I received your POST request. This is what you sent me: ${req.body.login} ${req.body.password} ${req.body.about}`,
-    );*/
+app.post('/requestAccess', (req, res) => {
+    let query = `
+        SELECT id FROM users
+        WHERE login = '${req.body.requestionLogin}';
+    `;
+    client
+        .query(query)
+        .then(resId => {
+
+            query = `
+                SELECT status FROM requests
+                WHERE target = '${req.body.requestedId}' AND requesting = '${resId.rows[0].id}';
+            `;
+            client
+                .query(query)
+                .then(result => {
+                    if (result.rows[0] === undefined){
+                        query = `
+                            INSERT INTO requests (target, requesting, status)
+                            VALUES ('${req.body.requestedId}', '${resId.rows[0].id}', 0);
+                        `;
+                        client
+                            .query(query)
+                            .then(result => {
+                                res.send({requested: 2});
+                            });
+                    }
+                    else {
+                        res.send({requested: result.rows[0].status});
+                    }
+                });
+        });
 });
 
 if (process.env.NODE_ENV === 'production') {

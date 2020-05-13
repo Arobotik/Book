@@ -13,6 +13,8 @@
     "history": "^4.10.1",
     "pg": "^8.1.0",
     "pg-promise": "^10.5.3",
+    "react-native-image-resizer": "^1.2.2",
+    "react-native-image-to-blob": "0.0.6",
     "react-router-dom": "^5.1.2"
   },
   "devDependencies": {
