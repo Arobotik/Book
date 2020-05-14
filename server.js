@@ -64,12 +64,17 @@ function queryDatabase(){
             status INT
         );
         
+        CREATE TABLE IF NOT EXISTS branches(
+            id serial PRIMARY KEY,
+            branch VARCHAR(40)
+        );
+
         DROP TABLE IF EXISTS admins;
         CREATE TABLE IF NOT EXISTS admins (
             login VARCHAR(20) PRIMARY KEY,
             password VARCHAR(20)
         );    
-
+        
         INSERT INTO admins (login, password) 
             VALUES ('admin', 'admin'),
                    ('DSR', 'DSR');
@@ -176,7 +181,6 @@ function updateUserData(req){
 
 function findNameById(ids, toFind){
     for (let user of ids){
-        console.log(user.id + ' ' + Number(toFind));
         if (user.id === Number(toFind)){
             return [user.id, user.name];
         }
@@ -198,6 +202,7 @@ app.get('/bookAllGet', (req, res) => {
     let query = `
         SELECT id, name 
         FROM users
+        WHERE banned = FALSE
     `;
 
     client
@@ -213,6 +218,21 @@ app.get('/bookAllGet', (req, res) => {
 
     toSend = null;
     anotherUserToSend = null;
+});
+
+app.get('/getAllBranches', (req, res) => {
+    let query = `
+         SELECT id, branch FROM branches;
+    `;
+    client.query(query)
+        .then(result => {
+            let branchesToSend = [];
+            for (let row of result.rows){
+                let branch = [row.id, row.branch];
+                branchesToSend.push(branch);
+            }
+            res.send({express: branchesToSend});
+        });
 });
 
 app.post('/requestsAllGet', (req, res) => {
@@ -258,6 +278,7 @@ app.post('/bookAllGetByAdmin', (req, res) => {
                 query = `
                     SELECT login, name 
                     FROM users
+                    WHERE banned = '${req.body.deleted}'
                 `;
 
                 client
@@ -325,7 +346,7 @@ app.post('/loginPost', (req, res) => {
     let login = req.body.login.toLowerCase();
 
     let query = `
-         SELECT id FROM users WHERE login = '${login}' AND password = '${req.body.password}';
+         SELECT id FROM users WHERE login = '${login}' AND password = '${req.body.password}' AND banned = FALSE;
     `;
     client.query(query)
         .then(result => {
@@ -350,6 +371,123 @@ app.post('/adminLoginPost', (req, res) => {
             } else {
                 res.send({logged: true});
             }
+        });
+});
+
+app.post('/deleteUser', (req, res) => {
+    let query = `
+        UPDATE users
+        SET banned = ${req.body.deleted}
+        WHERE login = '${req.body.login}' AND password = '${req.body.password}';
+    `;
+    client.query(query)
+        .then(result => { res.send(); });
+});
+
+function makeSelectWhereQuery(oldBranches){
+    let query = ``;
+    if (oldBranches.length !== 0){
+        query = `SELECT branch FROM branches 
+            WHERE id NOT IN (`;
+        let item = 0;
+        for (let branch of oldBranches){
+            query += branch[0];
+            if (++item !== oldBranches.length){
+                query += ', ';
+            }
+        }
+        query += ');'
+    }
+    return query;
+}
+
+function makeDeleteWhereQuery(oldBranches){
+    let query = ``;
+    if (oldBranches.length !== 0){
+        query = `DELETE FROM branches 
+            WHERE id NOT IN (`;
+        let item = 0;
+        for (let branch of oldBranches){
+            query += branch[0];
+            if (++item !== oldBranches.length){
+                query += ', ';
+            }
+        }
+        query += ');'
+    }
+    return query;
+}
+
+function makeUpdateBranchesFromUsersQuery(deleted){
+    let query = ``;
+    if (deleted.length !== 0){
+        query = `UPDATE users
+            SET branch = 'None' 
+            WHERE branch IN (`;
+        let item = 0;
+        for (let branch of deleted){
+            query += `'` + branch.branch + `'`;
+            if (++item !== deleted.length){
+                query += ', ';
+            }
+        }
+        query += ');'
+    }
+    return query;
+}
+
+function makeInsertQuery(newBranches){
+    let query = ``;
+    if (newBranches.length !== 0){
+        query = `INSERT INTO branches (branch)
+            VALUES `
+        ;
+        let item = 0;
+        for (let branch of newBranches){
+            query += `('` + branch[1] + `')`;
+            if (++item !== newBranches.length){
+                query += ', ';
+            }
+        }
+        query += ';'
+    }
+    return query;
+}
+
+function makeUpdateQuery(oldBranches){
+    let query = ``;
+    if (oldBranches.length !== 0){
+        for (let branch of oldBranches){
+            query += `UPDATE branches
+                SET branch = '${branch[1]}'
+                WHERE id = ${branch[0]};
+            `;
+        }
+    }
+    return query;
+}
+
+function makeUpdateBranchesQuery(oldBranches, newBranches, deleted){
+    return `
+        ${makeDeleteWhereQuery(oldBranches)}
+        ${makeInsertQuery(newBranches)}
+        ${makeUpdateQuery(oldBranches)}
+        ${makeUpdateBranchesFromUsersQuery(deleted)}
+    `;
+}
+
+app.post('/updateBranches', (req, res) => {
+    let oldBranches = req.body.branches.filter(branch => branch[0] !== -1);
+    let newBranches = req.body.branches.filter(branch => branch[0] === -1);
+    let query = `
+        ${makeSelectWhereQuery(oldBranches)}
+    `;
+
+    client.query(query)
+        .then(result => {
+            query = makeUpdateBranchesQuery(oldBranches, newBranches, result.rows);
+            client.query(query)
+                .then(result => { res.send(); });
         });
 });
 
@@ -497,6 +635,7 @@ app.post('/getMyPage', (req, res) => {
                     hideYear: row.hideyear,
                     hidePhones: row.hidephones,
                     about: row.about,
+                    deleted: row.banned,
                     avatar: row.avatar,
                 });
             }
