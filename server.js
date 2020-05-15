@@ -17,17 +17,6 @@ const config = {
 
 const client = new pg.Client(config);
 
-/*async function getInfoFromQuery(client, query, callback){
-    await client.query(query, function(err, results){
-        if (err){
-            throw err;
-        }
-        result = results;
-
-        return callback(results);
-    })
-}
-*/
 client.connect(err => {
     if (err) throw err;
     else {
@@ -59,8 +48,9 @@ function queryDatabase(){
         
         CREATE TABLE IF NOT EXISTS requests (
             id serial PRIMARY KEY,
-            target VARCHAR(20),
-            requesting VARCHAR(20),
+            target INTEGER,
+            requesting INTEGER,
+            sendDate DATE,
             status INT
         );
         
@@ -198,23 +188,40 @@ app.get('/loginGet', (req, res) => {
 let toSend = null;
 let anotherUserToSend = null;
 
-app.get('/bookAllGet', (req, res) => {
+let limit = 2;
+
+app.post('/bookAllGet', (req, res) => {
     let query = `
-        SELECT id, name 
+        SELECT id, name
         FROM users
-        WHERE banned = FALSE
+        WHERE banned = FALSE AND name LIKE '%${req.body.filter}%'
+        GROUP BY id
+        ORDER BY id
+        LIMIT ${limit} OFFSET ${req.body.page * limit}
     `;
+
 
     client
         .query(query)
         .then(result => {
-            let usersToSend = [];
-            for (let row of result.rows){
-                usersToSend.push([row.id, row.name]);
-            }
-            res.send({express:usersToSend});
+            query = `
+                SELECT count(*) as usersCount
+                FROM users
+                WHERE banned = FALSE AND name LIKE '%${req.body.filter}%'
+            `;
+            client
+                .query(query)
+                .then(count => {
+                    let usersToSend = [];
+                    for (let row of result.rows) {
+                        usersToSend.push([row.id, row.name]);
+                    }
+                    res.send({
+                        express: usersToSend,
+                        pageCount: Math.ceil(count.rows[0].userscount / limit)
+                    });
+                });
         });
-
 
     toSend = null;
     anotherUserToSend = null;
@@ -246,16 +253,16 @@ app.post('/requestsAllGet', (req, res) => {
         .query(query)
         .then(result => {
             query = `
-                SELECT requesting
+                SELECT requests.requesting, users.name
                 FROM requests
-                WHERE target = '${result.rows[0].id}' AND status = 0;
+                JOIN users ON users.id = requests.requesting
+                WHERE requests.target = ${result.rows[0].id} AND requests.status = 0;
             `;
-
             client
                 .query(query)
                 .then(result => {
                     for (let row of result.rows) {
-                        requestsToSend.push(row.requesting);
+                        requestsToSend.push([row.requesting, row.name]);
                     }
                     res.send({express: requestsToSend});
                 })
@@ -501,7 +508,9 @@ app.post('/adminGetAllRequests', (req, res) => {
         .then(result => {
             if (result.rows[0] !== undefined) {
                 query=`
-                    SELECT * FROM requests;
+                    SELECT * FROM requests
+                    ${req.body.status !== '' ? `WHERE status = ${req.body.status}` : ''}
+                    ORDER BY sendDate ${req.body.asc ? 'ASC' : 'DESC'};
                 `;
                 client.query(query)
                     .then(requests => {
@@ -513,11 +522,14 @@ app.post('/adminGetAllRequests', (req, res) => {
                                 let requestsToSend = [];
                                 for (let row of requests.rows){
                                     let request = [];
+
+                                    let date = row.senddate;
+                                    date.setDate(date.getDate() + 1);
                                     let user = findNameById(users.rows, row.target);
                                     request.push(user[0], user[1]);
                                     user = findNameById(users.rows, row.requesting);
                                     request.push(user[0], user[1]);
-                                    request.push(row.status);
+                                    request.push(row.status, date.toISOString().substr(0,10),);
                                     requestsToSend.push(request);
                                 }
                                 res.send({express: requestsToSend})
@@ -680,8 +692,8 @@ app.post('/requestAccess', (req, res) => {
                 .then(result => {
                     if (result.rows[0] === undefined){
                         query = `
-                            INSERT INTO requests (target, requesting, status)
-                            VALUES ('${req.body.requestedId}', '${resId.rows[0].id}', 0);
+                            INSERT INTO requests (target, requesting, status, sendDate)
+                            VALUES ('${req.body.requestedId}', '${resId.rows[0].id}', 0, to_timestamp(${Date.now()} / 1000.0));
                         `;
                         client
                             .query(query)
