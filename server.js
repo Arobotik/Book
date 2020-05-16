@@ -41,6 +41,7 @@ function queryDatabase(){
             workPlace VARCHAR(20),   
             about VARCHAR(100),  
             avatar SMALLINT ARRAY, 
+            lastVisited INTEGER ARRAY,
             hideYear BOOLEAN,
             hidePhones BOOLEAN,
             banned BOOLEAN
@@ -90,6 +91,21 @@ function makeArray(inp, inpLen){
         array += '}';
     }
     return array;
+}
+
+function addInLastVisited(id, lastVisited){
+    if (lastVisited === null)
+        lastVisited = [];
+    let ind = lastVisited.findIndex(item => item === id);
+    if (ind !== -1){
+        lastVisited.unshift(lastVisited[ind]);
+        lastVisited.splice(ind + 1, 1);
+    }
+    else{
+        lastVisited.unshift(id);
+    }
+    lastVisited.length = lastVisited.length > 9 ? 9 : lastVisited.length;
+    return lastVisited;
 }
 
 function createNewUser(req){
@@ -308,6 +324,54 @@ app.post('/bookAllGetByAdmin', (req, res) => {
         });
 });
 
+app.post('/getLastVisited', (req, res) => {
+    let query = `
+        SELECT lastvisited FROM users
+        WHERE login = '${req.body.login.toLowerCase()}' AND password = '${req.body.password}';
+    `;
+
+    client
+        .query(query)
+        .then(result => {
+            if (result.rows[0].lastvisited !== null){
+                query = `
+                    SELECT id, name, avatar FROM users
+                    WHERE id IN (${result.rows[0].lastvisited.join(', ')});
+                `;
+                client
+                    .query(query)
+                    .then(result => {
+                        let lastVisitedToSend = [];
+                        for (let row of result.rows){
+                            let lastVisited = [row.id, row.name, row.avatar];
+                            lastVisitedToSend.push(lastVisited);
+                        }
+                        res.send({express: lastVisitedToSend});
+                    });
+            }
+            else(res.send({express: []}));
+        });
+});
+
+function onAddInLastVisited(id, requesting){
+    let query = `
+        SELECT lastVisited FROM users
+        WHERE id = ${requesting}
+    `;
+    client
+        .query(query)
+        .then(result => {
+            let lastVisited = addInLastVisited(id, result.rows[0] !== undefined ? result.rows[0].lastvisited : []);
+            query = `
+                UPDATE users
+                SET lastVisited = '{${lastVisited.join(', ')}}'
+                WHERE id = ${requesting};
+            `;
+            client
+                .query(query);
+        });
+};
+
 app.post('/requestionAction', (req, res) => {
     let query = `
         SELECT id FROM users
@@ -353,7 +417,8 @@ app.post('/loginPost', (req, res) => {
     let login = req.body.login.toLowerCase();
 
     let query = `
-         SELECT id FROM users WHERE login = '${login}' AND password = '${req.body.password}' AND banned = FALSE;
+         SELECT id FROM users 
+         WHERE login = '${login}' AND password = '${req.body.password}' AND banned = FALSE;
     `;
     client.query(query)
         .then(result => {
@@ -542,6 +607,7 @@ app.post('/adminGetAllRequests', (req, res) => {
 });
 
 app.post('/getInfoAbout', (req, res) => {
+    onAddInLastVisited(req.body.id, req.body.requesting);
     let query = `
         SELECT 
             id,
