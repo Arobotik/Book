@@ -8,9 +8,11 @@
     "dev": "concurrently --kill-others-on-fail \"yarn server\" \"yarn client\""
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "body-parser": "^1.19.0",
     "express": "^4.17.1",
     "history": "^4.10.1",
+    "js-cookie": "^2.2.1",
     "pg": "^8.1.0",
     "pg-promise": "^10.5.3",
     "react-native-image-resizer": "^1.2.2",
