@@ -28,7 +28,7 @@ module.exports.encrypt = encrypt;
 module.exports.decrypt = decrypt;
 
 module.exports.makeAuth = function(id, admin = false){
-    const uuid = encrypt(id.toString());
+    const uuid = encrypt(id.toString()).replace(/\//g,'');
     if (admin){
         adminConnections.push(uuid);
     }

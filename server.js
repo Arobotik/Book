@@ -27,22 +27,23 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 let toSend = null;
 let anotherUserToSend = null;
 
-let limit = 2;
+let limit = 3;
 
-app.post('/checkSession', (req, res) => {
-    res.send({logged: serverutils.checkConnection(req.body.session)});
+app.get('/api/checkSession/:sessionId', (req, res) => {
+    res.send({logged: serverutils.checkConnection(req.params["sessionId"])});
 });
 
-app.post('/checkAdminSession', (req, res) => {
-    res.send({logged: serverutils.checkAdminConnection(req.body.session)});
+app.get('/api/checkAdminSession/:sessionId', (req, res) => {
+    res.send({logged: serverutils.checkAdminConnection(req.params["sessionId"])});
 });
 
-app.post('/bookAllGet', (req, res) => {
+app.get('/api/users/:page/:filter', (req, res) => {
+    let filter = req.params["filter"].slice(6);
     client
-        .query(querycreate.usersFilterSelect(req.body.filter, limit, req.body.page))
+        .query(querycreate.usersFilterSelect(filter, limit, req.params["page"]))
         .then(result => {
             client
-                .query(querycreate.selectCount(req.body.filter))
+                .query(querycreate.selectCount(filter))
                 .then(count => {
                     let usersToSend = [];
                     for (let row of result.rows) {
@@ -52,14 +53,14 @@ app.post('/bookAllGet', (req, res) => {
                         express: usersToSend,
                         pageCount: Math.ceil(count.rows[0].userscount / limit)
                     });
-                });
+                })
         });
 
     toSend = null;
     anotherUserToSend = null;
 });
 
-app.get('/getAllBranches', (req, res) => {
+app.get('/api/branches', (req, res) => {
     client.query(querycreate.selectAllBranches())
         .then(result => {
             let branchesToSend = [];
@@ -71,26 +72,29 @@ app.get('/getAllBranches', (req, res) => {
         });
 });
 
-app.post('/requestsAllGet', (req, res) => {
+app.get('/api/requests/:sessionId', (req, res) => {
     client
-        .query(querycreate.selectAllRequests(serverutils.getIdBySession(req.body.session)))
+        .query(querycreate.selectAllRequests(serverutils.getIdBySession(req.params["sessionId"])))
         .then(result => {
             let requestsToSend = [];
             for (let row of result.rows) {
                 requestsToSend.push([row.requesting, row.name]);
             }
-            res.send({express: requestsToSend});
-        });
+            res.send({result: true, express: requestsToSend});
+        })
+        .catch(() =>
+            res.send({result: false,})
+        );
 
 
     toSend = null;
     anotherUserToSend = null;
 });
 
-app.post('/bookAllGetByAdmin', (req, res) => {
-    if (serverutils.adminConnections.find(item => item === req.body.session)) {
+app.get('/admin/users/:sessionId/:deleted', (req, res) => {
+    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])) {
         client
-            .query(querycreate.selectAllUsersByBanned(req.body.deleted))
+            .query(querycreate.selectAllUsersByBanned(req.params["deleted"]))
             .then(result => {
                 let usersToSend = [];
                 for (let row of result.rows) {
@@ -108,9 +112,9 @@ app.post('/bookAllGetByAdmin', (req, res) => {
     }
 });
 
-app.post('/getLastVisited', (req, res) => {
+app.get('/api/lastVisited/:sessionId', (req, res) => {
     client
-        .query(querycreate.selectLastVisited(serverutils.getIdBySession(req.body.session)))
+        .query(querycreate.selectLastVisited(serverutils.getIdBySession(req.params["sessionId"])))
         .then(result => {
             if (result.rows[0] !== undefined && result.rows[0].lastvisited !== null){
                 client
@@ -128,18 +132,24 @@ app.post('/getLastVisited', (req, res) => {
         });
 });
 
-app.post('/requestionAction', (req, res) => {
+app.patch('/api/requests/:sessionId/:requesting', (req, res) => {
+    let resp = true;
     client
-        .query(querycreate.updateRequests(req.body.status, serverutils.getIdBySession(req.body.session), req.body.requesting))
-        .then(result => { res.send({result: true})});
+        .query(querycreate.updateRequests(req.body.status, serverutils.getIdBySession(req.params["sessionId"]), req.params["requesting"]))
+        .catch(() => resp = false)
+        .then(() => {
+            res.send({result: resp})
+        });
 });
 
-app.post('/adminRequestionAction', (req, res) => {
-    if (serverutils.adminConnections.find(item => item === req.body.session)) {
+app.patch('/admin/requests/:sessionId', (req, res) => {
+    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])) {
+        let resp = true;
         client
             .query(querycreate.updateRequests(req.body.status, req.body.target, req.body.requesting))
-            .then(result => {
-                res.send({result: true})
+            .catch(() => resp = false)
+            .then(() => {
+                res.send({result: resp})
             });
     }
     else{
@@ -147,72 +157,83 @@ app.post('/adminRequestionAction', (req, res) => {
     }
 });
 
-app.post('/loginPost', (req, res) => {
+app.post('/api/login', (req, res) => {
     let login = req.body.login.toLowerCase();
     client.query(querycreate.selectId(login, serverutils.encrypt(req.body.password)))
         .then(result => {
         if (result.rows[0] === undefined) {
-            res.send({logged: false});
+            res.send({result: false});
         } else {
             if (serverutils.decrypt(req.body.password, result.rows[0].password)) {
-                res.send({logged: true, id: result.rows[0].id, sessionId: serverutils.makeAuth(result.rows[0].id),});
+                res.send({result: true, id: result.rows[0].id, sessionId: serverutils.makeAuth(result.rows[0].id),});
             }
             else{
-                res.send({logged: false});
+                res.send({result: false});
             }
         }
     });
 });
 
-app.post('/adminLoginPost', (req, res) => {
+app.post('/admin/login', (req, res) => {
     let login = req.body.login.toLowerCase();
     client.query(querycreate.selectAdmin(login))
         .then(result => {
             if (result.rows[0] === undefined) {
-                res.send({logged: false});
+                res.send({result: false});
             } else {
                 if (serverutils.decrypt(req.body.password, result.rows[0].password)){
-                    res.send({logged: true, sessionId: serverutils.makeAuth(req.body.login, true),});
+                    res.send({result: true, sessionId: serverutils.makeAuth(req.body.login, true),});
                 }
                 else{
-                    res.send({logged: false});
+                    res.send({result: false});
                 }
             }
         });
 });
 
-app.post('/deleteUserByAdmin', (req, res) => {
+app.delete('/api/deleteUser/:id/:deleted', (req, res) => {
     if (serverutils.adminConnections.find(item => item === req.body.session)) {
-        client.query(querycreate.updateUserBanned(req.body.deleted, req.body.id))
-            .then(result => {
-                res.send();
-            });
+        let resp = true;
+        client.query(querycreate.updateUserBanned(req.params["deleted"], req.params["id"]))
+            .catch(() =>
+                resp = false)
+            .then(() => {
+                res.send({result: resp});
+        });
     }
     else{
-        res.send();
+        res.send({result: false});
     }
 });
 
 
-app.post('/updateBranchesByAdmin', (req, res) => {
+app.patch('/admin/branches', (req, res) => {
     if (serverutils.adminConnections.find(item => item === req.body.session)) {
+        let resp = true;
         let oldBranches = req.body.branches.filter(branch => branch[0] !== -1);
         let newBranches = req.body.branches.filter(branch => branch[0] === -1);
         client.query(querycreate.makeSelectWhereQuery(oldBranches))
             .then(result => {
                 client.query(querycreate.makeUpdateBranchesQuery(oldBranches, newBranches, result.rows))
-                    .then(result => {
-                        res.send();
+                    .catch(() =>
+                        resp = false);
+                    })
+                .then(() => {
+                        res.send({result: resp});
                     });
-            });
+    }
+    else{
+        res.send({result: false});
     }
 });
 
-app.post('/adminGetAllRequests', (req, res) => {
-    if (serverutils.adminConnections.find(item => item === req.body.session)) {
-        client.query(querycreate.selectAllRequestsByAdmin(req.body.status, req.body.asc))
+app.get('/admin/requests/:sessionId/:asc/:status', (req, res) => {
+    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])) {
+        let resp = true;
+        client.query(querycreate.selectAllRequestsByAdmin(req.params["status"], req.params["asc"]))
             .then(requests => {
                 client.query(querycreate.selectIdAndName())
+                    .catch(() => resp = false)
                     .then(users => {
                         let requestsToSend = [];
                         for (let row of requests.rows) {
@@ -226,7 +247,7 @@ app.post('/adminGetAllRequests', (req, res) => {
                             request.push(row.status, date.toISOString().substr(0, 10),);
                             requestsToSend.push(request);
                         }
-                        res.send({express: requestsToSend})
+                        res.send({result: resp, express: requestsToSend})
                     });
             });
     }
@@ -235,17 +256,17 @@ app.post('/adminGetAllRequests', (req, res) => {
     }
 });
 
-app.post('/getInfoAbout', (req, res) => {
-    let id = serverutils.getIdBySession(req.body.session);
-    if (id !== -1 && req.body.id !== -1){
-        serverutils.onAddInLastVisited(req.body.id, id, client);
+app.get('/api/user/:id/:session', (req, res) => {
+    let id = serverutils.getIdBySession(req.params["session"]);
+    if (id !== -1 && req.params["id"] !== -1){
+        serverutils.onAddInLastVisited(req.params["id"], id, client);
 
     client
-        .query(querycreate.selectUserInfoById(req.body.id))
+        .query(querycreate.selectUserInfoById(req.params["id"]))
         .then(result => {
-            if (result.rows !== undefined) {
+            if (result.rows[0] !== undefined) {
                 client
-                    .query(querycreate.selectRequestsStatus(req.body.id, serverutils.getIdBySession(req.body.session)))
+                    .query(querycreate.selectRequestsStatus(req.params["id"], serverutils.getIdBySession(req.params["session"])))
                     .then(status => {
                         let row = result.rows[0];
                         res.send({
@@ -277,44 +298,51 @@ app.post('/getInfoAbout', (req, res) => {
     }
 });
 
-app.post('/changeByAdmin', (req, res) => {
-    if (serverutils.adminConnections.find(item => item === req.body.session)){
+app.put('/admin/users/:sessionId', (req, res) => {
+    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])){
         client
             .query(querycreate.updateUserData(req, true));
     }
     res.send();
 });
 
-app.post('/registerOrChange', (req, res) => {
+app.post('/api/users', (req, res) => {
+    let resp = true;
     if (serverutils.getIdBySession(req.body.session) !== -1){
         client
-            .query(querycreate.updateUserData(req));
+            .query(querycreate.updateUserData(req))
+            .catch(() => resp = false)
+            .then(() => res.send({result: resp}));
     }
     else{
+        console.log(req.body);
         client
-            .query(querycreate.createNewUser(req));
+            .query(querycreate.createNewUser(req))
+            .catch(() => resp = false)
+            .then(() => res.send({result: resp}));
     }
-    res.send();
 });
 
-app.post('/getMyPage', (req, res) => {
+app.get('/api/me/:sessionId/:id', (req, res) => {
     let id;
-    if (serverutils.adminConnections.find(item => item === req.body.session)){
-        id = req.body.id;
+    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])){
+        id = req.params["id"];
     }
     else {
-        id = serverutils.getIdBySession(req.body.session);
+        id = serverutils.getIdBySession(req.params["sessionId"]);
     }
     if (id !== undefined) {
+        let resp = true;
         client
             .query(querycreate.selectAllInfo(id))
+            .catch(() => resp = false)
             .then(result => {
                 if (result.rows[0] !== undefined) {
                     let row = result.rows[0];
                     let bDate = row.birthdate;
                     bDate.setDate(bDate.getDate() + 1);
                     res.send({
-                        result: true,
+                        result: resp,
                         login: row.login,
                         password: '',
                         birthDate: bDate.toISOString().substr(0, 10),
@@ -335,26 +363,27 @@ app.post('/getMyPage', (req, res) => {
                 } else {
                     res.send({result: false});
                 }
-            });
+            })
     }
     else{
         res.send({result: false});
     }
 });
 
-app.post('/userValidate', (req, res) => {
+app.get('/api/validate/:login', (req, res) => {
     client
-        .query(querycreate.selectLogin(req.body.login))
+        .query(querycreate.selectLogin(req.params["login"]))
         .then(result => {
             let row = result.rows[0];
 
             res.send({
-                validate: row === undefined
+                result: row === undefined
             });
-        });
+        })
+        .catch(()=>res.send({result: false}));
 });
 
-app.post('/requestAccess', (req, res) => {
+app.post('/api/requests', (req, res) => {
             client
                 .query(querycreate.selectRequestsStatus(req.body.requestedId, serverutils.getIdBySession(req.body.session)))
                 .then(result => {

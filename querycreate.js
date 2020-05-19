@@ -54,15 +54,15 @@ function makeArray(inp, inpLen){
         }
         array += '}';
     }
-    return array !== '' ? array : null;
-};
+    return array !== '' ? array : '{}';
+}
 
 module.exports.updateUserData = function (req, byAdmin = false){
     let array = makeArray(req.body.avatar, req.body.len);
     return `
         UPDATE users SET
             login = '${req.body.login.toLowerCase()}',
-            password = '${serverutils.encrypt(req.body.password)}',
+            ${req.body.password !== '' ? `password = '${serverutils.encrypt(req.body.password)}',` : ''}
             name = '${req.body.name}',
             birthDate = '${req.body.birthDate}',
             workPhone = '${req.body.workPhone}',
@@ -76,7 +76,7 @@ module.exports.updateUserData = function (req, byAdmin = false){
             ${array !== null ? `avatar = '${array}',` : ''}
             hideYear = '${req.body.hideYear}',
             hidePhones = '${req.body.hidePhones}'
-        WHERE id = ${byAdmin ? req.body.id : getIdBySession(req.body.session)};
+        WHERE id = ${byAdmin ? req.body.id : serverutils.getIdBySession(req.body.session)};
     `;
 };
 
