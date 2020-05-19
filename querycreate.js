@@ -95,28 +95,37 @@ module.exports.updateLastVisited = function (lastVisited, requesting){
     `;
 };
 
-module.exports.usersFilterSelect = function(filter, limit, page){
+module.exports.usersFilterSelect = function(filter, limit, page, asc, deleted = false){
     return `
         SELECT id, name
         FROM users
-        WHERE banned = FALSE AND name LIKE '%${filter}%'
+        WHERE banned = '${deleted}' AND name LIKE '%${filter}%'
         GROUP BY id
-        ORDER BY id
-        LIMIT ${limit} OFFSET ${page * limit}
+        ORDER BY id ${asc === 'true' ? 'ASC' : 'DESC'}
+        LIMIT ${limit} OFFSET ${page * limit};
     `;
 };
 
-module.exports.selectCount = function(filter) {
+module.exports.selectCount = function(filter, deleted = false) {
     return `
         SELECT count(*) as usersCount
         FROM users
-        WHERE banned = FALSE AND name LIKE '%${filter}%'
+        WHERE banned = '${deleted}' AND name LIKE '%${filter}%'
     `;
 };
 
-module.exports.selectAllBranches = function(){
+module.exports.selectRequestsCount = function(status) {
     return `
-         SELECT id, branch FROM branches;
+        SELECT count(*) as requestsCount
+        FROM requests
+        ${status !== '' ? `WHERE status = '${status}'` : ''};
+    `;
+};
+
+module.exports.selectAllBranches = function(asc){
+    return `
+         SELECT id, branch FROM branches
+         ORDER BY branch ${asc === 'true' ? 'ASC' : 'DESC'};
     `;
 };
 
@@ -129,13 +138,6 @@ module.exports.selectAllRequests = function(session){
         `;
 };
 
-module.exports.selectAllUsersByBanned = function(banned){
-    return `
-             SELECT id, name 
-             FROM users
-             WHERE banned = '${banned}'
-        `;
-};
 
 
 function makeDeleteWhereQuery(oldBranches){
@@ -266,11 +268,12 @@ module.exports.updateUserBanned = function(deleted, id){
     `
 };
 
-module.exports.selectAllRequestsByAdmin = function(status, asc){
+module.exports.selectAllRequestsByAdmin = function(page, limit, status, asc){
     return `
         SELECT * FROM requests
         ${status !== '' ? `WHERE status = ${status}` : ''}
-        ORDER BY sendDate ${asc ? 'ASC' : 'DESC'};
+        ORDER BY sendDate ${asc === 'true' ? 'ASC' : 'DESC'}
+        LIMIT ${limit} OFFSET ${page * limit};;
     `
 };
 

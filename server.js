@@ -27,7 +27,7 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 let toSend = null;
 let anotherUserToSend = null;
 
-let limit = 3;
+let limit = 5;
 
 app.get('/api/checkSession/:sessionId', (req, res) => {
     res.send({logged: serverutils.checkConnection(req.params["sessionId"])});
@@ -37,10 +37,10 @@ app.get('/api/checkAdminSession/:sessionId', (req, res) => {
     res.send({logged: serverutils.checkAdminConnection(req.params["sessionId"])});
 });
 
-app.get('/api/users/:page/:filter', (req, res) => {
+app.get('/api/users/:page/:filter/:asc', (req, res) => {
     let filter = req.params["filter"].slice(6);
     client
-        .query(querycreate.usersFilterSelect(filter, limit, req.params["page"]))
+        .query(querycreate.usersFilterSelect(filter, limit, req.params["page"], req.params["asc"]))
         .then(result => {
             client
                 .query(querycreate.selectCount(filter))
@@ -60,8 +60,8 @@ app.get('/api/users/:page/:filter', (req, res) => {
     anotherUserToSend = null;
 });
 
-app.get('/api/branches', (req, res) => {
-    client.query(querycreate.selectAllBranches())
+app.get('/api/branches/:asc', (req, res) => {
+    client.query(querycreate.selectAllBranches(req.params["asc"]))
         .then(result => {
             let branchesToSend = [];
             for (let row of result.rows){
@@ -89,27 +89,6 @@ app.get('/api/requests/:sessionId', (req, res) => {
 
     toSend = null;
     anotherUserToSend = null;
-});
-
-app.get('/admin/users/:sessionId/:deleted', (req, res) => {
-    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])) {
-        client
-            .query(querycreate.selectAllUsersByBanned(req.params["deleted"]))
-            .then(result => {
-                let usersToSend = [];
-                for (let row of result.rows) {
-                    usersToSend.push([row.id, row.name]);
-                }
-                res.send({express: usersToSend});
-            });
-
-
-        toSend = null;
-        anotherUserToSend = null;
-    }
-    else{
-        res.send({express: false});
-    }
 });
 
 app.get('/api/lastVisited/:sessionId', (req, res) => {
@@ -227,10 +206,39 @@ app.patch('/admin/branches', (req, res) => {
     }
 });
 
-app.get('/admin/requests/:sessionId/:asc/:status', (req, res) => {
+app.get('/admin/users/:sessionId/:page/:filter/:deleted/:asc', (req, res) => {
+    let filter = req.params["filter"].slice(6);
+    if (serverutils.adminConnections.find(item => item === req.params["sessionId"])) {
+        client
+            .query(querycreate.usersFilterSelect(filter, limit, req.params["page"], req.params["asc"], req.params["deleted"]))
+            .then(result => {
+                client
+                    .query(querycreate.selectCount(filter, req.params["deleted"]))
+                    .then(count => {
+                        let usersToSend = [];
+                        for (let row of result.rows) {
+                            usersToSend.push([row.id, row.name]);
+                        }
+                        res.send({
+                            express: usersToSend,
+                            pageCount: Math.ceil(count.rows[0].userscount / limit)
+                        });
+                    })
+            });
+
+        toSend = null;
+        anotherUserToSend = null;
+    }
+    else{
+        res.send({express: false});
+    }
+});
+
+app.get('/admin/requests/:sessionId/:page/:asc/:status', (req, res) => {
+    let status = req.params["status"].slice(6);
     if (serverutils.adminConnections.find(item => item === req.params["sessionId"])) {
         let resp = true;
-        client.query(querycreate.selectAllRequestsByAdmin(req.params["status"], req.params["asc"]))
+        client.query(querycreate.selectAllRequestsByAdmin(req.params["page"], limit, status, req.params["asc"]))
             .then(requests => {
                 client.query(querycreate.selectIdAndName())
                     .catch(() => resp = false)
@@ -247,7 +255,12 @@ app.get('/admin/requests/:sessionId/:asc/:status', (req, res) => {
                             request.push(row.status, date.toISOString().substr(0, 10),);
                             requestsToSend.push(request);
                         }
-                        res.send({result: resp, express: requestsToSend})
+                        client
+                            .query(querycreate.selectRequestsCount(status))
+                            .then(count => res.send({
+                                result: resp,
+                                express: requestsToSend,
+                                pageCount: Math.ceil(count.rows[0].requestscount / limit)}));
                     });
             });
     }
@@ -402,7 +415,7 @@ app.post('/api/requests', (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
     // Serve any static files
-    app.use(express.static(path.join(__dirname, 'client/build')));
+    app.use(express.static(path.join(__dirnam.e, 'client/build')));
     // Handle React routing, return all requests to React app
     app.get('*', function(req, res) {
         res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
