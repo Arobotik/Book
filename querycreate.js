@@ -233,9 +233,10 @@ module.exports.makeSelectWhereQuery = function(oldBranches){
 };
 
 module.exports.selectItemsForCarousel = function(lastVisited){
+    let idIn = lastVisited.join(', ');
     return `
         SELECT id, name, avatar FROM users
-        WHERE id IN (${lastVisited.join(', ')});
+        WHERE id IN (${idIn !== '' ? idIn : '-1'});
     `;
 };
 

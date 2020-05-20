@@ -328,7 +328,6 @@ app.post('/api/users', (req, res) => {
             .then(() => res.send({result: resp}));
     }
     else{
-        console.log(req.body);
         client
             .query(querycreate.createNewUser(req))
             .catch(() => resp = false)
