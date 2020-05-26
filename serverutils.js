@@ -21,7 +21,7 @@ module.exports.checkConnection = function(session){
 };
 
 module.exports.checkAdminConnection = function(session){
-    return adminConnections.find(item => item === session);
+    return adminConnections.find(item => item === session) !== undefined;
 };
 
 module.exports.encrypt = encrypt;

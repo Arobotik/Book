@@ -225,7 +225,6 @@ app.get('/admin/users/:sessionId/:page/:filter/:deleted/:asc', (req, res) => {
                         });
                     })
             });
-
         toSend = null;
         anotherUserToSend = null;
     }
@@ -315,8 +314,11 @@ app.put('/admin/users/:sessionId', (req, res) => {
     if (serverutils.adminConnections.find(item => item === req.params["sessionId"])){
         client
             .query(querycreate.updateUserData(req, true));
+        res.send({result: true});
     }
-    res.send();
+    else{
+        res.send({result: false});
+    }
 });
 
 app.post('/api/users', (req, res) => {
