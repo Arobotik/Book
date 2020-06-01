@@ -101,7 +101,7 @@ module.exports.usersFilterSelect = function(filter, limit, page, asc, deleted = 
         FROM users
         WHERE banned = '${deleted}' AND name LIKE '%${filter}%'
         GROUP BY id
-        ORDER BY id ${asc === 'true' ? 'ASC' : 'DESC'}
+        ORDER BY name ${asc === 'true' ? 'ASC' : 'DESC'}
         LIMIT ${limit} OFFSET ${page * limit};
     `;
 };
